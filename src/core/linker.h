@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 #include "core/module.h"
+#include "core/tls.h"
 
 namespace Core {
 
@@ -113,7 +114,21 @@ public:
                             CallArgs&&... args) const {
         // Make sure TLS is initialized for the thread before entering guest.
         EnsureThreadInitialized();
-        return ExecuteGuestWithoutTls(func, args...);
+        SwapTls();
+        if constexpr (std::is_same_v<ReturnType, void>) {
+            ExecuteGuestWithoutTls(func, args...);
+            SwapTls();
+            return;
+        } else {
+            ReturnType ret = ExecuteGuestWithoutTls(func, args...);
+            SwapTls();
+            return ret;
+        }
+    }
+
+    template <class FuncType, FuncType func>
+    FuncType WrapHost() const {
+        return host_wrapper_impl<FuncType, func>::wrap;
     }
 
 private:
@@ -126,6 +141,25 @@ private:
                                       CallArgs&&... args) const {
         return func(std::forward<CallArgs>(args)...);
     }
+
+    template <class FuncType, FuncType func>
+    struct host_wrapper_impl;
+
+    template <class ReturnType, class... FuncArgs, PS4_SYSV_ABI ReturnType (*func)(FuncArgs...)>
+    struct host_wrapper_impl<PS4_SYSV_ABI ReturnType (*)(FuncArgs...), func> {
+        static ReturnType PS4_SYSV_ABI wrap(FuncArgs... args) {
+            SwapTls();
+            if constexpr (std::is_same_v<ReturnType, void>) {
+                func(args...);
+                SwapTls();
+                return;
+            } else {
+                ReturnType ret = func(args...);
+                SwapTls();
+                return ret;
+            }
+        }
+    };
 
     MemoryManager* memory;
     std::mutex mutex;

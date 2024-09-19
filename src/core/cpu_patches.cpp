@@ -881,11 +881,8 @@ struct PatchInfo {
 };
 
 static const std::unordered_map<ZydisMnemonic, PatchInfo> Patches = {
-#if defined(_WIN32)
-    // Windows needs a trampoline.
+#ifdef _WIN32
     {ZYDIS_MNEMONIC_MOV, {FilterTcbAccess, GenerateTcbAccess, true}},
-#elif !defined(__APPLE__)
-    {ZYDIS_MNEMONIC_MOV, {FilterTcbAccess, GenerateTcbAccess, false}},
 #endif
 
     {ZYDIS_MNEMONIC_EXTRQ, {FilterNoSSE4a, GenerateEXTRQ, true}},
@@ -1229,12 +1226,6 @@ void PrePatchInstructions(u64 segment_addr, u64 segment_size) {
             TryPatchJit(code_page);
             code_page += 0x1000;
         }
-    }
-#elif !defined(_WIN32)
-    // Linux and others have an FS segment pointing to valid memory, so continue to do full
-    // ahead-of-time patching for now until a better solution is worked out.
-    if (!Patches.empty()) {
-        TryPatchAot(reinterpret_cast<void*>(segment_addr), segment_size);
     }
 #endif
 }

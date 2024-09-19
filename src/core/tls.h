@@ -33,4 +33,7 @@ void SetTcbBase(void* image_address);
 /// Retrieves Tcb structure for the calling thread.
 Tcb* GetTcbBase();
 
+/// Swaps between the host and guest TLS area if needed.
+void SwapTls();
+
 } // namespace Core
