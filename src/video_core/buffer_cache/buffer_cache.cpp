@@ -59,13 +59,14 @@ void BufferCache::InvalidateMemory(VAddr device_addr, u64 size) {
         return;
     }
     // Mark the page as CPU modified to stop tracking writes.
-    SCOPE_EXIT {
-        memory_tracker.MarkRegionAsCpuModified(device_addr, size);
-    };
-    if (!memory_tracker.IsRegionGpuModified(device_addr, size)) {
-        // Page has not been modified by the GPU, nothing to do.
+    // GFD Engine - Mark whole buffer as modified to work around timing issues.
+    const u64 page = device_addr >> CACHING_PAGEBITS;
+    const BufferId buffer_id = page_table[page];
+    if (!buffer_id) {
         return;
     }
+    const Buffer& buffer = slot_buffers[buffer_id];
+    memory_tracker.MarkRegionAsCpuModified(buffer.cpu_addr, buffer.size_bytes);
 }
 
 void BufferCache::DownloadBufferMemory(Buffer& buffer, VAddr device_addr, u64 size) {
@@ -314,7 +315,9 @@ std::pair<Buffer*, u32> BufferCache::ObtainBuffer(VAddr device_addr, u32 size, b
                                                   bool is_texel_buffer, BufferId buffer_id) {
     // For small uniform buffers that have not been modified by gpu
     // use device local stream buffer to reduce renderpass breaks.
-    static constexpr u64 StreamThreshold = CACHING_PAGESIZE;
+    // GFD Engine/Project DIVA Future Tone - macOS workaround for Rosetta error.
+    // static constexpr u64 StreamThreshold = CACHING_PAGESIZE;
+    static constexpr u64 StreamThreshold = CACHING_PAGESIZE * 128;
     const bool is_gpu_dirty = memory_tracker.IsRegionGpuModified(device_addr, size);
     if (!is_written && size <= StreamThreshold && !is_gpu_dirty) {
         const u64 offset = stream_buffer.Copy(device_addr, size, instance.UniformMinAlignment());
