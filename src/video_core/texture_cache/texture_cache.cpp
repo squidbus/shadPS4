@@ -99,7 +99,17 @@ ImageId TextureCache::ResolveDepthOverlap(const ImageInfo& requested_info, Image
         if (cache_info.resources == requested_info.resources) {
             return cache_image_id;
         } else {
-            UNREACHABLE();
+            // Sakura Wars - ResolveDepthOverlap hack.
+            ASSERT(cache_info.IsDepthStencil());
+            auto new_info{requested_info};
+            new_info.pixel_format = cache_info.pixel_format;
+            new_info.usage.depth_target = cache_info.usage.depth_target;
+            new_info.usage.stencil |= cache_info.usage.stencil;
+            new_info.usage.texture |= cache_info.usage.texture;
+            auto new_image_id = slot_images.insert(instance, scheduler, new_info);
+            RegisterImage(new_image_id);
+            FreeImage(cache_image_id);
+            return new_image_id;
         }
     }
 

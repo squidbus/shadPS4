@@ -292,7 +292,9 @@ void BufferCache::InlineDataToGds(u32 gds_offset, u32 value) {
 
 std::pair<Buffer*, u32> BufferCache::ObtainBuffer(VAddr device_addr, u32 size, bool is_written,
                                                   bool is_texel_buffer) {
-    static constexpr u64 StreamThreshold = CACHING_PAGESIZE;
+    // Project DIVA Future Tone - YMM store across page boundaries with signal handler hack for macOS.
+    // static constexpr u64 StreamThreshold = CACHING_PAGESIZE;
+    static constexpr u64 StreamThreshold = CACHING_PAGESIZE * 2;
     const bool is_gpu_dirty = memory_tracker.IsRegionGpuModified(device_addr, size);
     if (!is_written && size <= StreamThreshold && !is_gpu_dirty) {
         // For small uniform buffers that have not been modified by gpu
