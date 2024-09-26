@@ -281,9 +281,12 @@ std::pair<const IR::Inst*, bool> TryDisableAnisoLod0(const IR::Inst* inst) {
     return {prod2, true};
 }
 
-SharpLocation TrackSharp(const IR::Inst* inst) {
+SharpLocation AttemptTrackSharp(const IR::Inst* inst, std::vector<const IR::Inst*>& visited_insts) {
     // Search until we find a potential sharp source.
-    const auto pred0 = [](const IR::Inst* inst) -> std::optional<const IR::Inst*> {
+    const auto pred0 = [&visited_insts](const IR::Inst* inst) -> std::optional<const IR::Inst*> {
+        if (std::ranges::find(visited_insts, inst) != visited_insts.end()) {
+            return std::nullopt;
+        }
         if (inst->GetOpcode() == IR::Opcode::GetUserData ||
             inst->GetOpcode() == IR::Opcode::ReadConst) {
             return inst;
@@ -293,6 +296,7 @@ SharpLocation TrackSharp(const IR::Inst* inst) {
     const auto result = IR::BreadthFirstSearch(inst, pred0);
     ASSERT_MSG(result, "Unable to track sharp source");
     inst = result.value();
+    visited_insts.emplace_back(inst);
     // If its from user data not much else to do.
     if (inst->GetOpcode() == IR::Opcode::GetUserData) {
         return SharpLocation{
@@ -323,6 +327,30 @@ SharpLocation TrackSharp(const IR::Inst* inst) {
         .sgpr_base = u32(base0.value()),
         .dword_offset = dword_offset,
     };
+}
+
+/// Tracks a sharp with validation of the chosen data type.
+template <typename DataType>
+std::pair<SharpLocation, DataType> TrackSharp(const IR::Inst* inst, Info& info) {
+    std::vector<const IR::Inst*> visited_insts{};
+    while (true) {
+        const auto prev_size = visited_insts.size();
+        const auto sharp = AttemptTrackSharp(inst, visited_insts);
+        const auto data = info.ReadUd<DataType>(sharp.sgpr_base, sharp.dword_offset);
+        if (data.Valid()) {
+            return std::make_pair(sharp, data);
+        }
+        if (prev_size == visited_insts.size()) {
+            // No change in visited instructions, we've run out.
+            UNREACHABLE_MSG("Unable to find valid sharp.");
+        }
+    }
+}
+
+/// Tracks a sharp without data validation.
+SharpLocation TrackSharp(const IR::Inst* inst) {
+    std::vector<const IR::Inst*> visited_insts{};
+    return AttemptTrackSharp(inst, visited_insts);
 }
 
 s32 TryHandleInlineCbuf(IR::Inst& inst, Info& info, Descriptors& descriptors,
@@ -363,8 +391,8 @@ void PatchBufferInstruction(IR::Block& block, IR::Inst& inst, Info& info,
     if (binding = TryHandleInlineCbuf(inst, info, descriptors, buffer); binding == -1) {
         IR::Inst* handle = inst.Arg(0).InstRecursive();
         IR::Inst* producer = handle->Arg(0).InstRecursive();
-        const auto sharp = TrackSharp(producer);
-        buffer = info.ReadUd<AmdGpu::Buffer>(sharp.sgpr_base, sharp.dword_offset);
+        SharpLocation sharp;
+        std::tie(sharp, buffer) = TrackSharp<AmdGpu::Buffer>(producer, info);
         binding = descriptors.Add(BufferResource{
             .sgpr_base = sharp.sgpr_base,
             .dword_offset = sharp.dword_offset,
@@ -426,8 +454,7 @@ void PatchTextureBufferInstruction(IR::Block& block, IR::Inst& inst, Info& info,
                                    Descriptors& descriptors) {
     const IR::Inst* handle = inst.Arg(0).InstRecursive();
     const IR::Inst* producer = handle->Arg(0).InstRecursive();
-    const auto sharp = TrackSharp(producer);
-    const auto buffer = info.ReadUd<AmdGpu::Buffer>(sharp.sgpr_base, sharp.dword_offset);
+    const auto [sharp, buffer] = TrackSharp<AmdGpu::Buffer>(producer, info);
     const s32 binding = descriptors.Add(TextureBufferResource{
         .sgpr_base = sharp.sgpr_base,
         .dword_offset = sharp.dword_offset,
