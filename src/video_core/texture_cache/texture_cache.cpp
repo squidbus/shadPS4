@@ -68,10 +68,14 @@ void TextureCache::InvalidateMemory(VAddr addr, VAddr page_addr, size_t size) {
             return;
         }
 
-        if (addr < image.cpu_addr_end) {
-            // Ensure image is reuploaded when accessed again.
-            image.flags |= ImageFlagBits::CpuDirty;
+        if (addr >= image.cpu_addr_end) {
+            // Remove tracking from this page only.
+            UntrackImageTail(image_id);
+            return;
         }
+
+        // Ensure image is reuploaded when accessed again.
+        image.flags |= ImageFlagBits::CpuDirty;
         // Untrack image, so the range is unprotected and the guest can write freely.
         UntrackImage(image_id);
     });
@@ -569,47 +573,60 @@ void TextureCache::TrackImage(ImageId image_id) {
     if (True(image.flags & ImageFlagBits::Tracked)) {
         return;
     }
-    if (True(image.flags & ImageFlagBits::TailTracked)) {
-        // Re-track only image head
-        TrackImageHead(image_id);
+
+    image.flags |= ImageFlagBits::Tracked;
+    if (True(image.flags & ImageFlagBits::TailTracked) ||
+        True(image.flags & ImageFlagBits::HeadTracked)) {
+        if (True(image.flags & ImageFlagBits::TailTracked)) {
+            // Re-track image head
+            image.flags &= ~ImageFlagBits::TailTracked;
+            const auto size = tracker.GetNextPageAddr(image.cpu_addr) - image.cpu_addr;
+            tracker.UpdatePagesCachedCount(image.cpu_addr, size, 1);
+        }
+        if (True(image.flags & ImageFlagBits::HeadTracked)) {
+            // Re-track image tail
+            image.flags &= ~ImageFlagBits::HeadTracked;
+            const auto addr = tracker.GetPageAddr(image.cpu_addr_end);
+            const auto size = image.cpu_addr_end - addr;
+            tracker.UpdatePagesCachedCount(addr, size, 1);
+        }
     } else {
         // Re-track the whole image
-        image.flags |= ImageFlagBits::Tracked;
         tracker.UpdatePagesCachedCount(image.cpu_addr, image.info.guest_size_bytes, 1);
     }
-}
-
-void TextureCache::TrackImageHead(ImageId image_id) {
-    auto& image = slot_images[image_id];
-    if (True(image.flags & ImageFlagBits::Tracked)) {
-        return;
-    }
-    ASSERT(True(image.flags & ImageFlagBits::TailTracked));
-    image.flags |= ImageFlagBits::Tracked;
-    image.flags &= ~ImageFlagBits::TailTracked;
-    const auto size = tracker.GetNextPageAddr(image.cpu_addr) - image.cpu_addr;
-    tracker.UpdatePagesCachedCount(image.cpu_addr, size, 1);
 }
 
 void TextureCache::UntrackImage(ImageId image_id) {
     auto& image = slot_images[image_id];
     ASSERT(!True(image.flags & ImageFlagBits::Tracked) ||
-           !True(image.flags & ImageFlagBits::TailTracked));
+           !True(image.flags & ImageFlagBits::TailTracked) ||
+           !True(image.flags & ImageFlagBits::HeadTracked));
     if (True(image.flags & ImageFlagBits::Tracked)) {
+        // Untrack the whole image
         image.flags &= ~ImageFlagBits::Tracked;
         tracker.UpdatePagesCachedCount(image.cpu_addr, image.info.guest_size_bytes, -1);
-    }
-    if (True(image.flags & ImageFlagBits::TailTracked)) {
-        image.flags &= ~ImageFlagBits::TailTracked;
-        const auto addr = tracker.GetNextPageAddr(image.cpu_addr);
-        const auto size = image.info.guest_size_bytes - (addr - image.cpu_addr);
+    } else if (True(image.flags & ImageFlagBits::TailTracked) ||
+               True(image.flags & ImageFlagBits::HeadTracked)) {
+        auto addr = image.cpu_addr;
+        auto size = image.info.guest_size_bytes;
+        if (True(image.flags & ImageFlagBits::TailTracked)) {
+            // Exclude the head page.
+            addr = tracker.GetNextPageAddr(image.cpu_addr);
+            size -= addr - image.cpu_addr;
+        }
+        if (True(image.flags & ImageFlagBits::HeadTracked)) {
+            // Exclude the tail page.
+            size -= image.cpu_addr_end - tracker.GetPageAddr(image.cpu_addr_end);
+        }
+        image.flags &= ~(ImageFlagBits::HeadTracked | ImageFlagBits::TailTracked);
         tracker.UpdatePagesCachedCount(addr, size, -1);
     }
 }
 
 void TextureCache::UntrackImageHead(ImageId image_id) {
     auto& image = slot_images[image_id];
-    if (False(image.flags & ImageFlagBits::Tracked)) {
+    if (False(image.flags & ImageFlagBits::Tracked) &&
+        False(image.flags & ImageFlagBits::HeadTracked)) {
         return;
     }
     image.flags |= ImageFlagBits::TailTracked;
@@ -618,10 +635,24 @@ void TextureCache::UntrackImageHead(ImageId image_id) {
     tracker.UpdatePagesCachedCount(image.cpu_addr, size, -1);
 }
 
+void TextureCache::UntrackImageTail(ImageId image_id) {
+    auto& image = slot_images[image_id];
+    if (False(image.flags & ImageFlagBits::Tracked) &&
+        False(image.flags & ImageFlagBits::TailTracked)) {
+        return;
+    }
+    image.flags |= ImageFlagBits::HeadTracked;
+    image.flags &= ~ImageFlagBits::Tracked;
+    const auto addr = tracker.GetPageAddr(image.cpu_addr_end);
+    const auto size = image.cpu_addr_end - addr;
+    tracker.UpdatePagesCachedCount(addr, size, -1);
+}
+
 void TextureCache::DeleteImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     ASSERT_MSG(False(image.flags & ImageFlagBits::Tracked), "Image was not untracked");
     ASSERT_MSG(False(image.flags & ImageFlagBits::TailTracked), "Image was not untracked");
+    ASSERT_MSG(False(image.flags & ImageFlagBits::HeadTracked), "Image was not untracked");
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered), "Image was not unregistered");
 
     // Remove any registered meta areas.

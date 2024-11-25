@@ -28,10 +28,11 @@ enum ImageFlagBits : u32 {
     Dirty = MaybeCpuDirty | CpuDirty | GpuDirty,
     GpuModified = 1 << 3,    ///< Contents have been modified from the GPU
     Tracked = 1 << 4,        ///< Writes and reads are being hooked from the CPU
-    TailTracked = 1 << 5,    ///< Writes and reads to the image tail are being hooked from the CPU
-    Registered = 1 << 6,     ///< True when the image is registered
-    Picked = 1 << 7,         ///< Temporary flag to mark the image as picked
-    MetaRegistered = 1 << 8, ///< True when metadata for this surface is known and registered
+    TailTracked = 1 << 5,    ///< Writes and reads to the image head are being hooked from the CPU
+    HeadTracked = 1 << 6,    ///< Writes and reads to the image tail are being hooked from the CPU
+    Registered = 1 << 7,     ///< True when the image is registered
+    Picked = 1 << 8,         ///< Temporary flag to mark the image as picked
+    MetaRegistered = 1 << 9, ///< True when metadata for this surface is known and registered
 };
 DECLARE_ENUM_FLAG_OPERATORS(ImageFlagBits)
 
