@@ -168,6 +168,15 @@ public:
         return features.tessellationShader;
     }
 
+    /// Returns true when sampler mip lod bias is supported by the device
+    bool IsSamplerMipLodBiasSupported() const {
+#ifdef __APPLE__
+        return portability_features.samplerMipLodBias;
+#else
+        return true;
+#endif
+    }
+
     /// Returns the vendor ID of the physical device
     u32 GetVendorID() const {
         return properties.vendorID;
@@ -300,6 +309,7 @@ private:
     vk::PhysicalDevicePushDescriptorPropertiesKHR push_descriptor_props;
     vk::PhysicalDeviceVulkan12Properties vk12_props;
     vk::PhysicalDeviceFeatures features;
+    vk::PhysicalDevicePortabilitySubsetFeaturesKHR portability_features;
     vk::DriverIdKHR driver_id;
     vk::UniqueDebugUtilsMessengerEXT debug_callback{};
     std::string vendor_name;

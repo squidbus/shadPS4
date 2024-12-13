@@ -8,6 +8,7 @@
 #include "shader_recompiler/ir/breadth_first_search.h"
 #include "shader_recompiler/ir/ir_emitter.h"
 #include "shader_recompiler/ir/program.h"
+#include "shader_recompiler/profile.h"
 #include "video_core/amdgpu/resource.h"
 
 namespace Shader::Optimization {
@@ -455,8 +456,9 @@ IR::Value PatchCubeCoord(IR::IREmitter& ir, const IR::Value& s, const IR::Value&
 }
 
 void PatchImageSampleInstruction(IR::Block& block, IR::Inst& inst, Info& info,
-                                 Descriptors& descriptors, const IR::Inst* producer,
-                                 const u32 image_binding, const AmdGpu::Image& image) {
+                                 const Profile& profile, Descriptors& descriptors,
+                                 const IR::Inst* producer, const u32 image_binding,
+                                 const AmdGpu::Image& image) {
     // Read sampler sharp. This doesn't exist for IMAGE_LOAD/IMAGE_STORE instructions
     const auto [sampler_binding, sampler] = [&] -> std::pair<u32, AmdGpu::Sampler> {
         ASSERT(producer->GetOpcode() == IR::Opcode::CompositeConstructU32x2);
@@ -548,7 +550,9 @@ void PatchImageSampleInstruction(IR::Block& block, IR::Inst& inst, Info& info,
             UNREACHABLE();
         }
     }();
-    const IR::F32 bias = inst_info.has_bias ? get_addr_reg(addr_reg++) : IR::F32{};
+    const IR::F32 bias = inst_info.has_bias                      ? get_addr_reg(addr_reg++)
+                         : !profile.support_sampler_mip_lod_bias ? ir.Imm32(sampler.LodBias())
+                                                                 : IR::F32{};
     const IR::F32 dref = inst_info.is_depth ? get_addr_reg(addr_reg++) : IR::F32{};
     const auto [derivatives_dx, derivatives_dy] = [&] -> std::pair<IR::Value, IR::Value> {
         if (!inst_info.has_derivatives) {
@@ -658,7 +662,8 @@ void PatchImageSampleInstruction(IR::Block& block, IR::Inst& inst, Info& info,
     inst.ReplaceUsesWithAndRemove(new_inst);
 }
 
-void PatchImageInstruction(IR::Block& block, IR::Inst& inst, Info& info, Descriptors& descriptors) {
+void PatchImageInstruction(IR::Block& block, IR::Inst& inst, Info& info, const Profile& profile,
+                           Descriptors& descriptors) {
     const auto pred = [](const IR::Inst* inst) -> std::optional<const IR::Inst*> {
         const auto opcode = inst->GetOpcode();
         if (opcode == IR::Opcode::CompositeConstructU32x2 || // IMAGE_SAMPLE (image+sampler)
@@ -728,7 +733,8 @@ void PatchImageInstruction(IR::Block& block, IR::Inst& inst, Info& info, Descrip
 
     // Sample instructions must be resolved into a new instruction using address register data.
     if (inst.GetOpcode() == IR::Opcode::ImageSampleRaw) {
-        PatchImageSampleInstruction(block, inst, info, descriptors, producer, image_binding, image);
+        PatchImageSampleInstruction(block, inst, info, profile, descriptors, producer,
+                                    image_binding, image);
         return;
     }
 
@@ -830,7 +836,7 @@ void PatchDataRingInstruction(IR::Block& block, IR::Inst& inst, Info& info,
     inst.SetArg(1, ir.Imm32(binding));
 }
 
-void ResourceTrackingPass(IR::Program& program) {
+void ResourceTrackingPass(IR::Program& program, const Profile& profile) {
     // Iterate resource instructions and patch them after finding the sharp.
     auto& info = program.info;
 
@@ -846,7 +852,7 @@ void ResourceTrackingPass(IR::Program& program) {
                 continue;
             }
             if (IsImageInstruction(inst)) {
-                PatchImageInstruction(*block, inst, info, descriptors);
+                PatchImageInstruction(*block, inst, info, profile, descriptors);
                 continue;
             }
             if (IsDataRingInstruction(inst)) {

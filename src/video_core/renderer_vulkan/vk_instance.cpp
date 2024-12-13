@@ -314,6 +314,9 @@ bool Instance::CreateDevice() {
     };
 
     const auto vk12_features = feature_chain.get<vk::PhysicalDeviceVulkan12Features>();
+#ifdef __APPLE__
+    portability_features = feature_chain.get<vk::PhysicalDevicePortabilitySubsetFeaturesKHR>();
+#endif
     vk::StructureChain device_chain = {
         vk::DeviceCreateInfo{
             .queueCreateInfoCount = 1u,
@@ -409,7 +412,7 @@ bool Instance::CreateDevice() {
             .legacyVertexAttributes = true,
         },
 #ifdef __APPLE__
-        feature_chain.get<vk::PhysicalDevicePortabilitySubsetFeaturesKHR>(),
+        portability_features,
 #endif
     };
 

@@ -23,6 +23,7 @@ struct Profile {
     bool support_fp32_denorm_flush{};
     bool support_explicit_workgroup_layout{};
     bool support_legacy_vertex_attributes{};
+    bool support_sampler_mip_lod_bias{};
     bool has_broken_spirv_clamp{};
     bool lower_left_origin_mode{};
     bool needs_manual_interpolation{};

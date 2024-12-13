@@ -13,7 +13,7 @@ void IdentityRemovalPass(IR::BlockList& program);
 void DeadCodeEliminationPass(IR::Program& program);
 void ConstantPropagationPass(IR::BlockList& program);
 void FlattenExtendedUserdataPass(IR::Program& program);
-void ResourceTrackingPass(IR::Program& program);
+void ResourceTrackingPass(IR::Program& program, const Profile& profile);
 void CollectShaderInfoPass(IR::Program& program);
 void LowerSharedMemToRegisters(IR::Program& program);
 void RingAccessElimination(const IR::Program& program, const RuntimeInfo& runtime_info,

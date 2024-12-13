@@ -56,6 +56,7 @@ struct FMaskSpecialization {
 
 struct SamplerSpecialization {
     bool force_unnormalized = false;
+    float mip_lod_bias = 0.0f;
 
     auto operator<=>(const SamplerSpecialization&) const = default;
 };
@@ -124,8 +125,11 @@ struct StageSpecialization {
                          spec.height = sharp.height;
                      });
         ForEachSharp(samplers, info->samplers,
-                     [](auto& spec, const auto& desc, AmdGpu::Sampler sharp) {
+                     [&profile_](auto& spec, const auto& desc, AmdGpu::Sampler sharp) {
                          spec.force_unnormalized = sharp.force_unnormalized;
+                         if (!profile_.support_sampler_mip_lod_bias) {
+                             spec.mip_lod_bias = sharp.LodBias();
+                         }
                      });
     }
 
