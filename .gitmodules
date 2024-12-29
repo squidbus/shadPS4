@@ -113,7 +113,7 @@
 	shallow = true
 [submodule "externals/MoltenVK/MoltenVK"]
 	path = externals/MoltenVK/MoltenVK
-	url = https://github.com/KhronosGroup/MoltenVK
+	url = https://github.com/squidbus/MoltenVK
 	shallow = true
 [submodule "externals/MoltenVK/cereal"]
 	path = externals/MoltenVK/cereal
