@@ -4,11 +4,11 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <magic_enum/magic_enum.hpp>
 
 #include "common/assert.h"
 #include "common/config.h"
 #include "common/logging/log.h"
+#include "common/thread.h"
 #include "core/libraries/audio/audioout.h"
 #include "core/libraries/audio/audioout_backend.h"
 #include "core/libraries/audio/audioout_error.h"
@@ -181,6 +181,7 @@ int PS4_SYSV_ABI sceAudioOutClose(s32 handle) {
     }
 
     port.impl = nullptr;
+    port.buffer_timer = nullptr;
     return ORBIS_OK;
 }
 
@@ -405,14 +406,17 @@ s32 PS4_SYSV_ABI sceAudioOutOpen(UserService::OrbisUserServiceUserId user_id,
     port->type = port_type;
     port->format = format;
     port->is_float = IsFormatFloat(format);
+    port->freq = sample_rate;
     port->sample_size = GetFormatSampleSize(format);
     port->channels_num = GetFormatNumChannels(format);
-    port->samples_num = length;
     port->frame_size = port->sample_size * port->channels_num;
-    port->buffer_size = port->frame_size * port->samples_num;
-    port->freq = sample_rate;
+    port->buffer_frames = length;
+    port->buffer_size = port->frame_size * port->buffer_frames;
     port->volume.fill(SCE_AUDIO_OUT_VOLUME_0DB);
+
     port->impl = audio->Open(*port);
+    port->buffer_time = std::chrono::microseconds(1000000ULL * port->buffer_frames / port->freq);
+    port->buffer_timer = std::make_unique<Common::AccurateTimer>(port->buffer_time);
 
     return std::distance(ports_out.begin(), port) + 1;
 }
@@ -436,14 +440,37 @@ s32 PS4_SYSV_ABI sceAudioOutOutput(s32 handle, void* ptr) {
         return ORBIS_AUDIO_OUT_ERROR_INVALID_PORT;
     }
 
-    port.impl->Output(ptr, port.buffer_size);
+    port.buffer_timer->Start();
+    port.impl->Output(ptr);
+    port.buffer_timer->End();
     return ORBIS_OK;
 }
 
 int PS4_SYSV_ABI sceAudioOutOutputs(OrbisAudioOutOutputParam* param, u32 num) {
+    PortOut* max_time_port{};
     for (u32 i = 0; i < num; i++) {
-        if (const auto err = sceAudioOutOutput(param[i].handle, param[i].ptr); err != 0)
-            return err;
+        const auto [handle, ptr] = param[i];
+        if (handle < 1 || handle > SCE_AUDIO_OUT_NUM_PORTS) {
+            return ORBIS_AUDIO_OUT_ERROR_INVALID_PORT;
+        }
+        if (ptr == nullptr) {
+            // Nothing to output
+            return ORBIS_OK;
+        }
+
+        auto& port = ports_out.at(handle - 1);
+        if (!port.impl) {
+            return ORBIS_AUDIO_OUT_ERROR_INVALID_PORT;
+        }
+
+        port.impl->Output(ptr);
+        if (max_time_port == nullptr || port.buffer_time > max_time_port->buffer_time) {
+            max_time_port = &port;
+        }
+    }
+    if (max_time_port) {
+        max_time_port->buffer_timer->Start();
+        max_time_port->buffer_timer->End();
     }
     return ORBIS_OK;
 }

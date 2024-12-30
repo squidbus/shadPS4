@@ -19,7 +19,8 @@ namespace Libraries::AudioOut {
 class CubebPortBackend : public PortBackend {
 public:
     CubebPortBackend(cubeb* ctx, const PortOut& port)
-        : frame_size(port.frame_size), buffer(static_cast<int>(port.buffer_size) * 4) {
+        : frame_size(port.frame_size), buffer_size(port.buffer_size),
+          buffer(static_cast<int>(port.buffer_size) * 4) {
         if (!ctx) {
             return;
         }
@@ -42,7 +43,9 @@ public:
             .layout = get_channel_layout(),
             .prefs = CUBEB_STREAM_PREF_NONE,
         };
-        u32 latency_frames = port.samples_num;
+        // We want the latency for delivering frames out to be as small as possible,
+        // so set the latency frames to the number of frames per buffer or lower.
+        u32 latency_frames = port.buffer_frames;
         if (const auto ret = cubeb_get_min_latency(ctx, &stream_params, &latency_frames);
             ret != CUBEB_OK) {
             LOG_WARNING(Lib_AudioOut,
@@ -77,15 +80,15 @@ public:
         stream = nullptr;
     }
 
-    void Output(void* ptr, size_t size) override {
+    void Output(void* ptr) override {
         if (!stream) {
             return;
         }
-        auto* data = static_cast<u8*>(ptr);
-
-        std::unique_lock lock{buffer_mutex};
-        buffer_cv.wait(lock, [&] { return buffer.available_write() >= size; });
-        buffer.enqueue(data, static_cast<int>(size));
+        if (const auto enqueued = buffer.enqueue(static_cast<u8*>(ptr), static_cast<int>(buffer_size));
+            enqueued != buffer_size) {
+            LOG_ERROR(Lib_AudioOut, "Not enough room in cubeb ring buffer for {} bytes.",
+                      buffer_size - enqueued);
+        }
     }
 
     void SetVolume(const std::array<int, 8>& ch_volumes) override {
@@ -107,12 +110,7 @@ private:
         auto* stream_data = static_cast<CubebPortBackend*>(user_data);
         const auto out_data = static_cast<u8*>(out);
         const auto requested_size = static_cast<int>(num_frames * stream_data->frame_size);
-
-        std::unique_lock lock{stream_data->buffer_mutex};
         const auto dequeued_size = stream_data->buffer.dequeue(out_data, requested_size);
-        lock.unlock();
-        stream_data->buffer_cv.notify_one();
-
         if (dequeued_size < requested_size) {
             // Need to fill remaining space with silence.
             std::memset(out_data + dequeued_size, 0, requested_size - dequeued_size);
@@ -138,9 +136,8 @@ private:
     }
 
     size_t frame_size;
+    u32 buffer_size;
     RingBuffer<u8> buffer;
-    std::mutex buffer_mutex;
-    std::condition_variable buffer_cv;
     cubeb_stream* stream{};
 };
 

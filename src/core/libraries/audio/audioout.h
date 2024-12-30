@@ -3,10 +3,15 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 
 #include "common/bit_field.h"
 #include "core/libraries/system/userservice.h"
+
+namespace Common {
+class AccurateTimer;
+}
 
 namespace Libraries::AudioOut {
 
@@ -61,16 +66,18 @@ struct OrbisAudioOutPortState {
 
 struct PortOut {
     std::unique_ptr<PortBackend> impl{};
+    std::chrono::microseconds buffer_time;
+    std::unique_ptr<Common::AccurateTimer> buffer_timer;
 
     OrbisAudioOutPort type;
     OrbisAudioOutParamFormat format;
     bool is_float;
+    u32 freq;
     u8 sample_size;
     u8 channels_num;
-    u32 samples_num;
     u32 frame_size;
+    u32 buffer_frames;
     u32 buffer_size;
-    u32 freq;
     std::array<int, 8> volume;
 };
 

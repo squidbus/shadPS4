@@ -14,11 +14,9 @@ namespace Libraries::AudioOut {
 class SDLPortBackend : public PortBackend {
 public:
     explicit SDLPortBackend(const PortOut& port) : buffer_size(port.buffer_size) {
-        // We want the wait time for delivering frames out to be as small as possible,
-        // so set the sample frames hint to the number of samples per buffer.
-        // Note that this will only apply when the device is first opened, but it still
-        // helps to get a sample of what the game expects from at least one port.
-        const auto samples_num_str = std::to_string(port.samples_num);
+        // We want the latency for delivering frames out to be as small as possible,
+        // so set the sample frames hint to the number of frames per buffer.
+        const auto samples_num_str = std::to_string(port.buffer_frames);
         if (!SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, samples_num_str.c_str())) {
             LOG_WARNING(Lib_AudioOut, "Failed to set SDL audio sample frames hint to {}: {}",
                         samples_num_str, SDL_GetError());
@@ -50,18 +48,11 @@ public:
         stream = nullptr;
     }
 
-    void Output(void* ptr, size_t size) override {
+    void Output(void* ptr) override {
         if (!stream) {
             return;
         }
-        // Game expects audio output to wait. To prevent choppy audio, we wait when
-        // there are two or more of the guest buffer size already queued.
-        while (SDL_GetAudioStreamQueued(stream) >= buffer_size * 4) {
-            SDL_FlushAudioStream(stream);
-            // Yield to allow the stream to drain.
-            std::this_thread::yield();
-        }
-        if (!SDL_PutAudioStreamData(stream, ptr, static_cast<int>(size))) {
+        if (!SDL_PutAudioStreamData(stream, ptr, static_cast<int>(buffer_size))) {
             LOG_ERROR(Lib_AudioOut, "Failed to output to SDL audio stream: {}", SDL_GetError());
         }
     }
