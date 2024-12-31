@@ -394,7 +394,7 @@ int PS4_SYSV_ABI sceRtcGetCurrentAdNetworkTick(OrbisRtcTick* pTick) {
         return ORBIS_RTC_ERROR_INVALID_POINTER;
 
     Kernel::OrbisKernelTimespec clocktime;
-    int returnValue = Kernel::sceKernelClockGettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
+    int returnValue = Kernel::posix_clock_gettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
 
     if (returnValue == ORBIS_OK) {
         pTick->tick = clocktime.tv_nsec / 1000 + clocktime.tv_sec * 1000000 + UNIX_EPOCH_TICKS;
@@ -412,7 +412,7 @@ int PS4_SYSV_ABI sceRtcGetCurrentClock(OrbisRtcDateTime* pTime, int timeZone) {
         return ORBIS_RTC_ERROR_DATETIME_UNINITIALIZED;
 
     Kernel::OrbisKernelTimespec clocktime;
-    int returnValue = Kernel::sceKernelClockGettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
+    int returnValue = Kernel::posix_clock_gettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
 
     if (returnValue == ORBIS_OK) {
         OrbisRtcTick clockTick;
@@ -458,7 +458,7 @@ int PS4_SYSV_ABI sceRtcGetCurrentDebugNetworkTick(OrbisRtcTick* pTick) {
         return ORBIS_RTC_ERROR_INVALID_POINTER;
 
     Kernel::OrbisKernelTimespec clocktime;
-    int returnValue = Kernel::sceKernelClockGettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
+    int returnValue = Kernel::posix_clock_gettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
 
     if (returnValue == ORBIS_OK) {
         pTick->tick = clocktime.tv_nsec / 1000 + clocktime.tv_sec * 1000000 + UNIX_EPOCH_TICKS;
@@ -476,7 +476,7 @@ int PS4_SYSV_ABI sceRtcGetCurrentNetworkTick(OrbisRtcTick* pTick) {
         return ORBIS_RTC_ERROR_INVALID_POINTER;
 
     Kernel::OrbisKernelTimespec clocktime;
-    int returnValue = Kernel::sceKernelClockGettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
+    int returnValue = Kernel::posix_clock_gettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
 
     if (returnValue == ORBIS_OK) {
         pTick->tick = clocktime.tv_nsec / 1000 + clocktime.tv_sec * 1000000 + UNIX_EPOCH_TICKS;
@@ -494,7 +494,7 @@ int PS4_SYSV_ABI sceRtcGetCurrentRawNetworkTick(OrbisRtcTick* pTick) {
         return ORBIS_RTC_ERROR_INVALID_POINTER;
 
     Kernel::OrbisKernelTimespec clocktime;
-    int returnValue = Kernel::sceKernelClockGettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
+    int returnValue = Kernel::posix_clock_gettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
 
     if (returnValue == ORBIS_OK) {
         pTick->tick = clocktime.tv_nsec / 1000 + clocktime.tv_sec * 1000000 + UNIX_EPOCH_TICKS;
@@ -512,7 +512,7 @@ int PS4_SYSV_ABI sceRtcGetCurrentTick(OrbisRtcTick* pTick) {
         return ORBIS_RTC_ERROR_DATETIME_UNINITIALIZED;
 
     Kernel::OrbisKernelTimespec clocktime;
-    int returnValue = Kernel::sceKernelClockGettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
+    int returnValue = Kernel::posix_clock_gettime(Kernel::ORBIS_CLOCK_REALTIME, &clocktime);
 
     if (returnValue >= 0) {
         pTick->tick = clocktime.tv_nsec / 1000 + clocktime.tv_sec * 1000000 + UNIX_EPOCH_TICKS;
