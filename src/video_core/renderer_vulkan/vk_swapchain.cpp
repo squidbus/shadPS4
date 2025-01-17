@@ -81,7 +81,7 @@ void Swapchain::Create(u32 width_, u32 height_) {
         .pQueueFamilyIndices = queue_family_indices.data(),
         .preTransform = transform,
         .compositeAlpha = composite_alpha,
-        .presentMode = has_mailbox ? vk::PresentModeKHR::eMailbox : vk::PresentModeKHR::eImmediate,
+        .presentMode = vk::PresentModeKHR::eImmediate,
         .clipped = true,
         .oldSwapchain = nullptr,
     };
