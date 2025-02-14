@@ -178,10 +178,10 @@ Id EmitReadConstBuffer(EmitContext& ctx, u32 handle, Id index) {
 }
 
 Id EmitReadStepRate(EmitContext& ctx, int rate_idx) {
+    const auto offset{rate_idx == 0 ? PushData::Step0Offset : PushData::Step1Offset};
     return ctx.OpLoad(
         ctx.U32[1], ctx.OpAccessChain(ctx.TypePointer(spv::StorageClass::PushConstant, ctx.U32[1]),
-                                      ctx.push_data_block,
-                                      rate_idx == 0 ? ctx.u32_zero_value : ctx.u32_one_value));
+                                      ctx.push_data_block, ctx.ConstU32(offset)));
 }
 
 Id EmitGetAttributeForGeometry(EmitContext& ctx, IR::Attribute attr, u32 comp, Id index) {
@@ -401,17 +401,24 @@ static Id EmitLoadBufferU32xN(EmitContext& ctx, u32 handle, Id address) {
     auto& buffer = ctx.buffers[handle];
     address = ctx.OpIAdd(ctx.U32[1], address, buffer.offset);
     const Id index = ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.ConstU32(2u));
-    if constexpr (N == 1) {
-        const Id ptr{ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index)};
-        return ctx.OpLoad(buffer.data_types->Get(1), ptr);
-    } else {
-        boost::container::static_vector<Id, N> ids;
-        for (u32 i = 0; i < N; i++) {
-            const Id index_i = ctx.OpIAdd(ctx.U32[1], index, ctx.ConstU32(i));
-            const Id ptr{
-                ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index_i)};
-            ids.push_back(ctx.OpLoad(buffer.data_types->Get(1), ptr));
+
+    boost::container::static_vector<Id, N> ids;
+    for (u32 i = 0; i < N; i++) {
+        const Id index_i = i > 0 ? ctx.OpIAdd(ctx.U32[1], index, ctx.ConstU32(i)) : index;
+        const Id ptr{
+            ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index_i)};
+
+        const Id result{ctx.OpLoad(buffer.data_types->Get(1), ptr)};
+        if (ctx.profile.supports_robust_buffer_access) {
+            ids.push_back(result);
+        } else {
+            const Id in_bounds{ctx.OpULessThan(ctx.U1[1], index_i, buffer.size_dwords)};
+            ids.push_back(ctx.OpSelect(ctx.U32[1], in_bounds, result, ctx.ConstU32(0u)));
         }
+    }
+    if (N == 1) {
+        return ids[0];
+    } else {
         return ctx.OpCompositeConstruct(buffer.data_types->Get(N), ids);
     }
 }
@@ -471,15 +478,26 @@ static void EmitStoreBufferU32xN(EmitContext& ctx, u32 handle, Id address, Id va
     auto& buffer = ctx.buffers[handle];
     address = ctx.OpIAdd(ctx.U32[1], address, buffer.offset);
     const Id index = ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.ConstU32(2u));
-    if constexpr (N == 1) {
-        const Id ptr{ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index)};
-        ctx.OpStore(ptr, value);
-    } else {
-        for (u32 i = 0; i < N; i++) {
-            const Id index_i = ctx.OpIAdd(ctx.U32[1], index, ctx.ConstU32(i));
-            const Id ptr =
-                ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index_i);
-            ctx.OpStore(ptr, ctx.OpCompositeExtract(buffer.data_types->Get(1), value, i));
+
+    for (u32 i = 0; i < N; i++) {
+        const Id index_i = i > 0 ? ctx.OpIAdd(ctx.U32[1], index, ctx.ConstU32(i)) : index;
+        const Id ptr =
+            ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index_i);
+        const Id value_i =
+            N == 1 ? value : ctx.OpCompositeExtract(buffer.data_types->Get(1), value, i);
+
+        if (ctx.profile.supports_robust_buffer_access) {
+            ctx.OpStore(ptr, value_i);
+        } else {
+            const Id in_bounds{ctx.OpULessThan(ctx.U1[1], index_i, buffer.size_dwords)};
+            const Id in_bounds_label{ctx.OpLabel()};
+            const Id merge_label{ctx.OpLabel()};
+            ctx.OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
+            ctx.OpBranchConditional(in_bounds, in_bounds_label, merge_label);
+            ctx.AddLabel(in_bounds_label);
+            ctx.OpStore(ptr, value_i);
+            ctx.OpBranch(merge_label);
+            ctx.AddLabel(merge_label);
         }
     }
 }

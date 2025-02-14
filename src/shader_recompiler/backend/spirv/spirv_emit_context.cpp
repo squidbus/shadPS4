@@ -191,19 +191,34 @@ EmitContext::SpirvAttribute EmitContext::GetAttributeInfo(AmdGpu::NumberFormat f
     UNREACHABLE_MSG("Invalid attribute type {}", fmt);
 }
 
-void EmitContext::DefineBufferOffsets() {
+void EmitContext::DefineBufferProperties() {
     for (BufferDefinition& buffer : buffers) {
         const u32 binding = buffer.binding;
-        const u32 half = PushData::BufOffsetIndex + (binding >> 4);
-        const u32 comp = (binding & 0xf) >> 2;
-        const u32 offset = (binding & 0x3) << 3;
-        const Id ptr{OpAccessChain(TypePointer(spv::StorageClass::PushConstant, U32[1]),
-                                   push_data_block, ConstU32(half), ConstU32(comp))};
-        const Id value{OpLoad(U32[1], ptr)};
-        buffer.offset = OpBitFieldUExtract(U32[1], value, ConstU32(offset), ConstU32(8U));
+
+        const u32 offset_half = PushData::BufOffsetIndex + (binding >> 4);
+        const u32 offset_comp = (binding & 0xf) >> 2;
+        const u32 offset_bit = (binding & 0x3) << 3;
+        const Id offset_ptr{OpAccessChain(TypePointer(spv::StorageClass::PushConstant, U32[1]),
+                                          push_data_block, ConstU32(offset_half),
+                                          ConstU32(offset_comp))};
+        const Id offset_value{OpLoad(U32[1], offset_ptr)};
+        buffer.offset =
+            OpBitFieldUExtract(U32[1], offset_value, ConstU32(offset_bit), ConstU32(8U));
         Name(buffer.offset, fmt::format("buf{}_off", binding));
         buffer.offset_dwords = OpShiftRightLogical(U32[1], buffer.offset, ConstU32(2U));
         Name(buffer.offset_dwords, fmt::format("buf{}_dword_off", binding));
+
+        if (!profile.supports_robust_buffer_access) {
+            const u32 size_field = PushData::BufSizesIndex + (binding >> 2);
+            const u32 size_comp = binding & 0x3;
+            const Id size_ptr{OpAccessChain(TypePointer(spv::StorageClass::PushConstant, U32[1]),
+                                            push_data_block, ConstU32(size_field),
+                                            ConstU32(size_comp))};
+            buffer.size = OpLoad(U32[1], size_ptr);
+            Name(buffer.size, fmt::format("buf{}_size", binding));
+            buffer.size_dwords = OpShiftRightLogical(U32[1], buffer.size, ConstU32(2U));
+            Name(buffer.size_dwords, fmt::format("buf{}_dword_size", binding));
+        }
     }
 }
 
@@ -555,34 +570,25 @@ void EmitContext::DefineOutputs() {
 
 void EmitContext::DefinePushDataBlock() {
     // Create push constants block for instance steps rates
-    const Id struct_type{Name(TypeStruct(U32[1], U32[1], U32[4], U32[4], U32[4], U32[4], U32[4],
-                                         U32[4], F32[1], F32[1], F32[1], F32[1]),
+    const Id struct_type{Name(TypeStruct(U32[1], U32[1], F32[1], F32[1], F32[1], F32[1], U32[4],
+                                         U32[4], U32[4], U32[4], U32[4], U32[4], U32[4], U32[4],
+                                         U32[4], U32[4], U32[4], U32[4], U32[4], U32[4]),
                               "AuxData")};
+    const std::array names = {
+        "sr0",          "sr1",          "xoffset",    "yoffset",    "xscale",
+        "yscale",       "ud_regs0",     "ud_regs1",   "ud_regs2",   "ud_regs3",
+        "buf_offsets0", "buf_offsets1", "buf_sizes0", "buf_sizes1", "buf_sizes2",
+        "buf_sizes3",   "buf_sizes4",   "buf_sizes5", "buf_sizes6", "buf_sizes7",
+    };
+    const std::array offsets = {0u,  4u,   8u,   12u,  16u,  20u,  24u,  40u,  56u,  72u,
+                                88u, 104u, 120u, 136u, 152u, 168u, 184u, 200u, 216u, 232u};
     Decorate(struct_type, spv::Decoration::Block);
-    MemberName(struct_type, 0, "sr0");
-    MemberName(struct_type, 1, "sr1");
-    MemberName(struct_type, Shader::PushData::BufOffsetIndex + 0, "buf_offsets0");
-    MemberName(struct_type, Shader::PushData::BufOffsetIndex + 1, "buf_offsets1");
-    MemberName(struct_type, Shader::PushData::UdRegsIndex + 0, "ud_regs0");
-    MemberName(struct_type, Shader::PushData::UdRegsIndex + 1, "ud_regs1");
-    MemberName(struct_type, Shader::PushData::UdRegsIndex + 2, "ud_regs2");
-    MemberName(struct_type, Shader::PushData::UdRegsIndex + 3, "ud_regs3");
-    MemberName(struct_type, Shader::PushData::XOffsetIndex, "xoffset");
-    MemberName(struct_type, Shader::PushData::YOffsetIndex, "yoffset");
-    MemberName(struct_type, Shader::PushData::XScaleIndex, "xscale");
-    MemberName(struct_type, Shader::PushData::YScaleIndex, "yscale");
-    MemberDecorate(struct_type, 0, spv::Decoration::Offset, 0U);
-    MemberDecorate(struct_type, 1, spv::Decoration::Offset, 4U);
-    MemberDecorate(struct_type, Shader::PushData::BufOffsetIndex + 0, spv::Decoration::Offset, 8U);
-    MemberDecorate(struct_type, Shader::PushData::BufOffsetIndex + 1, spv::Decoration::Offset, 24U);
-    MemberDecorate(struct_type, Shader::PushData::UdRegsIndex + 0, spv::Decoration::Offset, 40U);
-    MemberDecorate(struct_type, Shader::PushData::UdRegsIndex + 1, spv::Decoration::Offset, 56U);
-    MemberDecorate(struct_type, Shader::PushData::UdRegsIndex + 2, spv::Decoration::Offset, 72U);
-    MemberDecorate(struct_type, Shader::PushData::UdRegsIndex + 3, spv::Decoration::Offset, 88U);
-    MemberDecorate(struct_type, Shader::PushData::XOffsetIndex, spv::Decoration::Offset, 104U);
-    MemberDecorate(struct_type, Shader::PushData::YOffsetIndex, spv::Decoration::Offset, 108U);
-    MemberDecorate(struct_type, Shader::PushData::XScaleIndex, spv::Decoration::Offset, 112U);
-    MemberDecorate(struct_type, Shader::PushData::YScaleIndex, spv::Decoration::Offset, 116U);
+    for (u32 i = 0; i < names.size(); i++) {
+        MemberName(struct_type, i, names[i]);
+    }
+    for (u32 i = 0; i < offsets.size(); i++) {
+        MemberDecorate(struct_type, i, spv::Decoration::Offset, offsets[i]);
+    }
     push_data_block = DefineVar(struct_type, spv::StorageClass::PushConstant);
     Name(push_data_block, "push_data");
     interfaces.push_back(push_data_block);

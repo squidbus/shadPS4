@@ -11,7 +11,7 @@ void EmitPrologue(EmitContext& ctx) {
     if (ctx.stage == Stage::Fragment) {
         ctx.DefineInterpolatedAttribs();
     }
-    ctx.DefineBufferOffsets();
+    ctx.DefineBufferProperties();
 }
 
 void ConvertDepthMode(EmitContext& ctx) {

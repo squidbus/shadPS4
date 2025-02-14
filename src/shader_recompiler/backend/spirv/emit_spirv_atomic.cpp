@@ -28,7 +28,14 @@ Id BufferAtomicU32(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address, Id 
     const Id index = ctx.OpShiftRightLogical(ctx.U32[1], address, ctx.ConstU32(2u));
     const Id ptr = ctx.OpAccessChain(buffer.pointer_type, buffer.id, ctx.u32_zero_value, index);
     const auto [scope, semantics]{AtomicArgs(ctx)};
-    return (ctx.*atomic_func)(ctx.U32[1], ptr, scope, semantics, value);
+
+    const Id result{(ctx.*atomic_func)(ctx.U32[1], ptr, scope, semantics, value)};
+    if (ctx.profile.supports_robust_buffer_access) {
+        return result;
+    } else {
+        const Id in_bounds{ctx.OpULessThan(ctx.U1[1], index, buffer.size_dwords)};
+        return ctx.OpSelect(ctx.U32[1], in_bounds, result, ctx.ConstU32(0u));
+    }
 }
 
 Id ImageAtomicU32(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id value,

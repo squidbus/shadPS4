@@ -43,7 +43,7 @@ public:
 
     Id Def(const IR::Value& value);
 
-    void DefineBufferOffsets();
+    void DefineBufferProperties();
     void DefineInterpolatedAttribs();
 
     [[nodiscard]] Id DefineInput(Id type, std::optional<u32> location = std::nullopt,
@@ -231,6 +231,8 @@ public:
         Id id;
         Id offset;
         Id offset_dwords;
+        Id size;
+        Id size_dwords;
         u32 binding;
         const VectorIds* data_types;
         Id pointer_type;
