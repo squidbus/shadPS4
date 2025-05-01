@@ -8,7 +8,7 @@
 namespace Shader::Gcn {
 
 u32 SwizzleMrtComponent(const PsColorBuffer& color_buffer, u32 comp) {
-    const auto [r, g, b, a] = color_buffer.swizzle;
+    const auto [r, g, b, a] = color_buffer.swizzle.Inverse();
     const std::array swizzle_array = {r, g, b, a};
     const auto swizzled_comp_type = static_cast<u32>(swizzle_array[comp]);
     constexpr auto min_comp_type = static_cast<u32>(AmdGpu::CompSwizzle::Red);
