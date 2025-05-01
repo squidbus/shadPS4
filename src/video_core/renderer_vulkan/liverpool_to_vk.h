@@ -79,6 +79,7 @@ static inline bool IsFormatDepthCompatible(vk::Format fmt) {
     case vk::Format::eD32Sfloat:
     case vk::Format::eR32Sfloat:
     case vk::Format::eR32Uint:
+    case vk::Format::eR8G8B8A8Unorm:
     // 16-bit unorm compatible
     case vk::Format::eD16Unorm:
     case vk::Format::eR16Unorm:
@@ -101,7 +102,7 @@ static inline bool IsFormatStencilCompatible(vk::Format fmt) {
 }
 
 static inline vk::Format PromoteFormatToDepth(vk::Format fmt) {
-    if (fmt == vk::Format::eR32Sfloat || fmt == vk::Format::eR32Uint) {
+    if (fmt == vk::Format::eR32Sfloat || fmt == vk::Format::eR32Uint || fmt == vk::Format::eR8G8B8A8Unorm) {
         return vk::Format::eD32Sfloat;
     } else if (fmt == vk::Format::eR16Unorm) {
         return vk::Format::eD16Unorm;
