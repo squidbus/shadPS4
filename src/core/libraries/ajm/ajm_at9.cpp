@@ -156,23 +156,32 @@ DecoderResult AjmAt9Decoder::ProcessData(std::span<u8>& in_buf, SparseOutputBuff
     int bytes_used = 0;
     switch (m_format) {
     case AjmFormatEncoding::S16:
-        ret = Atrac9Decode(m_handle, in_buf.data(), reinterpret_cast<s16*>(m_pcm_buffer.data()),
-                           &bytes_used, True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
+        ret = Atrac9Decode(m_handle, in_buf.data(), static_cast<int>(in_buf.size()),
+                           reinterpret_cast<s16*>(m_pcm_buffer.data()), &bytes_used,
+                           True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
         break;
     case AjmFormatEncoding::S32:
-        ret = Atrac9DecodeS32(m_handle, in_buf.data(), reinterpret_cast<s32*>(m_pcm_buffer.data()),
-                              &bytes_used, True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
+        ret = Atrac9DecodeS32(m_handle, in_buf.data(), static_cast<int>(in_buf.size()),
+                              reinterpret_cast<s32*>(m_pcm_buffer.data()), &bytes_used,
+                              True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
         break;
     case AjmFormatEncoding::Float:
-        ret =
-            Atrac9DecodeF32(m_handle, in_buf.data(), reinterpret_cast<float*>(m_pcm_buffer.data()),
-                            &bytes_used, True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
+        ret = Atrac9DecodeF32(m_handle, in_buf.data(), static_cast<int>(in_buf.size()),
+                              reinterpret_cast<float*>(m_pcm_buffer.data()), &bytes_used,
+                              True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
         break;
     default:
         UNREACHABLE();
     }
-    if (ret != At9Status::ERR_SUCCESS) {
-        LOG_ERROR(Lib_Ajm, "Atrac9Decode failed ret = {:#x}", ret);
+
+    switch (ret) {
+    case ERR_SUCCESS:
+        break;
+    case static_cast<int>(ERR_END_OF_BUFFER):
+        result.result = ORBIS_AJM_RESULT_PARTIAL_INPUT;
+        return result;
+    default:
+        LOG_ERROR(Lib_Ajm, "Atrac9Decode failed ret = {:#x}", static_cast<u32>(ret));
         result.result = ORBIS_AJM_RESULT_CODEC_ERROR | ORBIS_AJM_RESULT_FATAL;
         result.internal_result = ret;
         return result;
@@ -225,8 +234,8 @@ DecoderResult AjmAt9Decoder::ProcessData(std::span<u8>& in_buf, SparseOutputBuff
         // Drain the remaining superframe
         std::vector<s16> buf(m_codec_info.frameSamples * m_codec_info.channels, 0);
         while ((m_num_frames % m_codec_info.framesInSuperframe) != 0) {
-            ret = Atrac9Decode(m_handle, in_buf.data(), buf.data(), &bytes_used,
-                               True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
+            ret = Atrac9Decode(m_handle, in_buf.data(), static_cast<int>(in_buf.size()), buf.data(),
+                               &bytes_used, True(m_flags & AjmAt9CodecFlags::NonInterleavedOutput));
             in_buf = in_buf.subspan(bytes_used);
             m_superframe_bytes_remain -= bytes_used;
             result.frames_decoded += 1;
