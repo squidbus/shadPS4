@@ -253,9 +253,55 @@ void BufferCache::BindVertexBuffers(
     }
 }
 
-void BufferCache::BindIndexBuffer(
+static constexpr u16 NumVerticesPerQuad = 4;
+
+inline void EmitQuadToTriangleListIndices(u8* out_ptr, u32 num_vertices) {
+    u16* out_data = reinterpret_cast<u16*>(out_ptr);
+    for (u16 i = 0; i < num_vertices; i += NumVerticesPerQuad) {
+        *out_data++ = i;
+        *out_data++ = i + 1;
+        *out_data++ = i + 2;
+        *out_data++ = i;
+        *out_data++ = i + 2;
+        *out_data++ = i + 3;
+    }
+}
+
+template <typename T>
+void ConvertQuadToTriangleListIndices(u8* out_ptr, const u8* in_ptr, u32 num_vertices) {
+    T* out_data = reinterpret_cast<T*>(out_ptr);
+    const T* in_data = reinterpret_cast<const T*>(in_ptr);
+    for (u16 i = 0; i < num_vertices; i += NumVerticesPerQuad) {
+        *out_data++ = in_data[i];
+        *out_data++ = in_data[i + 1];
+        *out_data++ = in_data[i + 2];
+        *out_data++ = in_data[i];
+        *out_data++ = in_data[i + 2];
+        *out_data++ = in_data[i + 3];
+    }
+}
+
+u32 BufferCache::BindIndexBuffer(bool& is_indexed,
     u32 index_offset, boost::container::small_vector<vk::BufferMemoryBarrier2, 16>& barriers) {
     const auto& regs = liverpool->regs;
+    if (!is_indexed) {
+        if (regs.primitive_type != AmdGpu::PrimitiveType::QuadList) {
+            return regs.num_indices;
+        }
+
+        // Emit indices.
+        const u32 index_size = 3 * regs.num_indices;
+        const auto [data, offset] = stream_buffer.Map(index_size);
+        EmitQuadToTriangleListIndices(data, regs.num_indices);
+        stream_buffer.Commit();
+
+        // Bind index buffer.
+        is_indexed = true;
+
+        const auto cmdbuf = scheduler.CommandBuffer();
+        cmdbuf.bindIndexBuffer(stream_buffer.Handle(), offset, vk::IndexType::eUint16);
+        return index_size / sizeof(u16);
+    }
 
     // Figure out index type and size.
     const bool is_index16 = regs.index_buffer_type.index_type == AmdGpu::IndexType::Index16;
@@ -263,6 +309,30 @@ void BufferCache::BindIndexBuffer(
     const u32 index_size = is_index16 ? sizeof(u16) : sizeof(u32);
     const VAddr index_address =
         regs.index_base_address.Address<VAddr>() + index_offset * index_size;
+
+    if (regs.primitive_type == AmdGpu::PrimitiveType::QuadList) {
+        // Convert indices.
+        const u32 new_index_size = regs.num_indices * index_size * 6 / 4;
+        const auto [data, offset] = stream_buffer.Map(new_index_size);
+        const auto index_ptr = reinterpret_cast<u8*>(index_address);
+        switch (index_type) {
+        case vk::IndexType::eUint16:
+            ConvertQuadToTriangleListIndices<u16>(data, index_ptr, regs.num_indices);
+            break;
+        case vk::IndexType::eUint32:
+            ConvertQuadToTriangleListIndices<u32>(data, index_ptr, regs.num_indices);
+            break;
+        default:
+            UNREACHABLE_MSG("Unsupported QuadList index type {}", vk::to_string(index_type));
+            break;
+        }
+        stream_buffer.Commit();
+
+        // Bind index buffer.
+        const auto cmdbuf = scheduler.CommandBuffer();
+        cmdbuf.bindIndexBuffer(stream_buffer.Handle(), offset, index_type);
+        return new_index_size / index_size;
+    }
 
     // Bind index buffer.
     const u32 index_buffer_size = regs.num_indices * index_size;
@@ -275,6 +345,7 @@ void BufferCache::BindIndexBuffer(
     }
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindIndexBuffer(vk_buffer->Handle(), offset, index_type);
+    return regs.num_indices;
 }
 
 void BufferCache::FillBuffer(VAddr address, u32 num_bytes, u32 value, bool is_gds) {

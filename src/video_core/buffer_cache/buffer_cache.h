@@ -114,8 +114,8 @@ public:
                            boost::container::small_vector<vk::BufferMemoryBarrier2, 16>& barriers);
 
     /// Bind host index buffer for the current draw.
-    void BindIndexBuffer(u32 index_offset,
-                         boost::container::small_vector<vk::BufferMemoryBarrier2, 16>& barriers);
+    u32 BindIndexBuffer(bool& is_indexed, u32 index_offset,
+                        boost::container::small_vector<vk::BufferMemoryBarrier2, 16>& barriers);
 
     /// Writes a value to GPU buffer. (uses command buffer to temporarily store the data)
     void FillBuffer(VAddr address, u32 num_bytes, u32 value, bool is_gds);

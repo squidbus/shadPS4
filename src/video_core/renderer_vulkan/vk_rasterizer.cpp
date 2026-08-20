@@ -208,9 +208,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     const auto state = BeginRendering(pipeline);
 
     buffer_cache.BindVertexBuffers(*pipeline, buffer_barriers);
-    if (is_indexed) {
-        buffer_cache.BindIndexBuffer(index_offset, buffer_barriers);
-    }
+    const u32 num_indices = buffer_cache.BindIndexBuffer(is_indexed, index_offset, buffer_barriers);
 
     pipeline->BindResources(set_writes, buffer_barriers, push_data);
     UpdateDynamicState(pipeline, is_indexed);
@@ -224,10 +222,12 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline->Handle());
 
     if (is_indexed) {
-        cmdbuf.drawIndexed(regs.num_indices, regs.num_instances.NumInstances(), 0,
+        cmdbuf.drawIndexed(num_indices, regs.num_instances.NumInstances(), 0,
                            s32(vertex_offset), instance_offset);
     } else {
-        cmdbuf.draw(regs.num_indices, regs.num_instances.NumInstances(), vertex_offset,
+        const u32 num_vertices =
+            regs.primitive_type == AmdGpu::PrimitiveType::RectList ? 4 : regs.num_indices;
+        cmdbuf.draw(num_vertices, regs.num_instances.NumInstances(), vertex_offset,
                     instance_offset);
     }
     DebugState.IncDrawCall();
@@ -257,9 +257,7 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
     const auto state = BeginRendering(pipeline);
 
     buffer_cache.BindVertexBuffers(*pipeline, buffer_barriers);
-    if (is_indexed) {
-        buffer_cache.BindIndexBuffer(0, buffer_barriers);
-    }
+    const u32 num_indices = buffer_cache.BindIndexBuffer(is_indexed, 0, buffer_barriers);
 
     const auto& [buffer, base] =
         buffer_cache.ObtainBuffer(arg_address + offset, stride * max_count, false);
@@ -1364,8 +1362,8 @@ void Rasterizer::UpdatePrimitiveState(const bool is_indexed) const {
     };
     const auto is_patch_list_topology = [](const AmdGpu::PrimitiveType type) {
         // Quad and rect lists are emulated using tessellation.
-        return type == AmdGpu::PrimitiveType::PatchPrimitive ||
-               type == AmdGpu::PrimitiveType::QuadList || type == AmdGpu::PrimitiveType::RectList;
+        return type == AmdGpu::PrimitiveType::PatchPrimitive;// ||
+               //type == AmdGpu::PrimitiveType::QuadList || type == AmdGpu::PrimitiveType::RectList;
     };
 
     const auto prim_restart =
